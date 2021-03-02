@@ -1,3 +1,3 @@
-# Writing a interpreter
+# Writing an interpreter
 
-A rust implementation of the [writing a interpreter in go book](https://interpreterbook.com).
+A rust implementation of the [writing an interpreter in go book](https://interpreterbook.com).
