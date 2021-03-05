@@ -29,14 +29,6 @@ impl Lexer {
         };
 
         let token = match char {
-            '=' => {
-                if self.peek_char() == Some('=') {
-                    self.read_char();
-                    Token::Equals
-                } else {
-                    Token::Assign
-                }
-            }
             ';' => Token::Semicolon,
             '(' => Token::LeftParen,
             ')' => Token::RightParen,
@@ -45,6 +37,18 @@ impl Lexer {
             ',' => Token::Comma,
             '+' => Token::Plus,
             '-' => Token::Minus,
+            '/' => Token::Slash,
+            '*' => Token::Asterisk,
+            '<' => Token::LessThan,
+            '>' => Token::GreaterThan,
+            '=' => {
+                if self.peek_char() == Some('=') {
+                    self.read_char();
+                    Token::Equals
+                } else {
+                    Token::Assign
+                }
+            }
             '!' => {
                 if self.peek_char() == Some('=') {
                     self.read_char();
@@ -53,11 +57,6 @@ impl Lexer {
                     Token::Bang
                 }
             }
-            '/' => Token::Slash,
-            '*' => Token::Asterisk,
-            '<' => Token::LessThan,
-            '>' => Token::GreaterThan,
-
             c if Lexer::is_letter(c) => {
                 let identifier = self.read_identifier();
                 return lookup_identifier(&identifier);
@@ -65,7 +64,7 @@ impl Lexer {
 
             c if Lexer::is_digit(c) => {
                 let number = self.read_number();
-                return Token::Integer { value: number };
+                return Token::Integer(number);
             }
 
             _ => Token::Illegal,
@@ -89,13 +88,11 @@ impl Lexer {
                 break;
             }
         }
-
         return word;
     }
 
     fn read_number(&mut self) -> String {
         let mut number = String::new();
-
         while let Some(ch) = self.ch {
             if Lexer::is_digit(ch) {
                 number.push(ch);
@@ -104,7 +101,6 @@ impl Lexer {
                 break;
             }
         }
-
         return number;
     }
 
@@ -129,11 +125,7 @@ impl Lexer {
     }
 
     fn is_letter(ch: char) -> bool {
-        if ch.is_alphabetic() {
-            return true;
-        }
-
-        return ch == '_';
+        return ch.is_alphabetic() || ch == '_';
     }
 
     fn is_digit(ch: char) -> bool {
@@ -149,93 +141,58 @@ mod tests {
     fn test_next_token() {
         let tests = vec![
             (Token::Let, "let"),
-            (
-                Token::Identifier {
-                    value: "five".into(),
-                },
-                "five",
-            ),
+            (Token::Identifier("five".into()), "five"),
             (Token::Assign, "="),
-            (Token::Integer { value: "5".into() }, "5"),
+            (Token::Integer("5".into()), "5"),
             (Token::Semicolon, ";"),
             (Token::Let, "let"),
-            (
-                Token::Identifier {
-                    value: "ten".into(),
-                },
-                "ten",
-            ),
+            (Token::Identifier("ten".into()), "ten"),
             (Token::Assign, "="),
-            (Token::Integer { value: "10".into() }, "10"),
+            (Token::Integer("10".into()), "10"),
             (Token::Semicolon, ";"),
             (Token::Let, "let"),
-            (
-                Token::Identifier {
-                    value: "add".into(),
-                },
-                "add",
-            ),
+            (Token::Identifier("add".into()), "add"),
             (Token::Assign, "="),
             (Token::Function, "fn"),
             (Token::LeftParen, "("),
-            (Token::Identifier { value: "x".into() }, "x"),
+            (Token::Identifier("x".into()), "x"),
             (Token::Comma, ","),
-            (Token::Identifier { value: "y".into() }, "y"),
+            (Token::Identifier("y".into()), "y"),
             (Token::RightParen, ")"),
             (Token::LeftBrace, "{"),
-            (Token::Identifier { value: "x".into() }, "x"),
+            (Token::Identifier("x".into()), "x"),
             (Token::Plus, "+"),
-            (Token::Identifier { value: "y".into() }, "y"),
+            (Token::Identifier("y".into()), "y"),
             (Token::Semicolon, ";"),
             (Token::RightBrace, "}"),
             (Token::Semicolon, ";"),
             (Token::Let, "let"),
-            (
-                Token::Identifier {
-                    value: "result".into(),
-                },
-                "result",
-            ),
+            (Token::Identifier("result".into()), "result"),
             (Token::Assign, "="),
-            (
-                Token::Identifier {
-                    value: "add".into(),
-                },
-                "add",
-            ),
+            (Token::Identifier("add".into()), "add"),
             (Token::LeftParen, "("),
-            (
-                Token::Identifier {
-                    value: "five".into(),
-                },
-                "five",
-            ),
+            (Token::Identifier("five".into()), "five"),
             (Token::Comma, ","),
-            (
-                Token::Identifier {
-                    value: "ten".into(),
-                },
-                "ten",
-            ),
+            (Token::Identifier("ten".into()), "ten"),
             (Token::RightParen, ")"),
             (Token::Semicolon, ";"),
             (Token::Bang, "!"),
             (Token::Minus, "-"),
             (Token::Slash, "/"),
             (Token::Asterisk, "*"),
-            (Token::Integer { value: "5".into() }, "5"),
+            (Token::Integer("5".into()), "5"),
             (Token::Semicolon, ";"),
-            (Token::Integer { value: "5".into() }, "5"),
+            (Token::Integer("5".into()), "5"),
             (Token::LessThan, "<"),
-            (Token::Integer { value: "10".into() }, "10"),
+            (Token::Integer("10".into()), "10"),
             (Token::GreaterThan, ">"),
-            (Token::Integer { value: "5".into() }, "5"),
+            (Token::Integer("5".into()), "5"),
             (Token::Semicolon, ";"),
             (Token::If, "if"),
             (Token::LeftParen, "("),
-            (Token::Integer { value: "5".into() }, "5"),
+            (Token::Integer("5".into()), "5"),
             (Token::LessThan, "<"),
-            (Token::Integer { value: "10".into() }, "10"),
+            (Token::Integer("10".into()), "10"),
             (Token::RightParen, ")"),
             (Token::LeftBrace, "{"),
             (Token::Return, "return"),
@@ -248,13 +205,13 @@ mod tests {
             (Token::False, "false"),
             (Token::Semicolon, ";"),
             (Token::RightBrace, "}"),
-            (Token::Integer { value: "10".into() }, "10"),
+            (Token::Integer("10".into()), "10"),
             (Token::Equals, "=="),
-            (Token::Integer { value: "10".into() }, "10"),
+            (Token::Integer("10".into()), "10"),
             (Token::Semicolon, ";"),
-            (Token::Integer { value: "10".into() }, "10"),
+            (Token::Integer("10".into()), "10"),
             (Token::NotEquals, "!="),
-            (Token::Integer { value: "9".into() }, "9"),
+            (Token::Integer("9".into()), "9"),
             (Token::Semicolon, ";"),
             (Token::Eof, ""),
         ];
