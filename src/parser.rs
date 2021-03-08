@@ -451,7 +451,12 @@ mod tests {
 
     #[test]
     fn test_prefix_expression() {
-        let tests = vec![("!5;", "!", 5), ("-15;", "-", 15)];
+        let tests = vec![
+            ("!5;", "!", Expected::Integer(5)),
+            ("-15;", "-", Expected::Integer(15)),
+            ("!true", "!", Expected::Boolean(true)),
+            ("!false", "!", Expected::Boolean(false)),
+        ];
 
         for test in tests {
             let lexer = Lexer::new(test.0);
@@ -476,19 +481,21 @@ mod tests {
             };
 
             assert_eq!(prefix_expression.operator, test.1);
-            test_integer_literal(prefix_expression.right.as_ref(), test.2);
+            test_literal_expression(prefix_expression.right.as_ref(), test.2);
         }
     }
 
     enum Expected {
         String(String),
         Integer(i64),
+        Boolean(bool),
     }
 
     fn test_literal_expression(expression: &Expression, value: Expected) {
         match value {
             Expected::String(v) => test_identifier(expression, v),
             Expected::Integer(v) => test_integer_literal(expression, v),
+            Expected::Boolean(v) => test_boolean_literal(expression, v),
         }
     }
 
@@ -506,6 +513,16 @@ mod tests {
         )
     }
 
+    fn test_boolean_literal(expression: &Expression, value: bool) {
+        let literal = match expression {
+            Expression::BooleanExpression(v) => v,
+            e => panic!("Expected boolean identifier but got {:?}", e),
+        };
+
+        assert_eq!(literal.value, value);
+        assert_eq!(literal.token.token_literal(), value.to_string());
+    }
+
     fn test_identifier(expression: &Expression, value: String) {
         let identifier = match expression {
             Expression::Identifier(v) => v,
@@ -519,7 +536,7 @@ mod tests {
     fn test_infix_expression(
         expression: &Expression,
         left: Expected,
-        operator: String,
+        operator: &str,
         right: Expected,
     ) {
         let infix_expression = match expression {
@@ -538,14 +555,32 @@ mod tests {
     #[test]
     fn test_infix_expressions() {
         let tests = vec![
-            ("5 + 5;", 5, "+", 5),
-            ("5 - 5;", 5, "-", 5),
-            ("5 * 5;", 5, "*", 5),
-            ("5 / 5;", 5, "/", 5),
-            ("5 > 5;", 5, ">", 5),
-            ("5 < 5;", 5, "<", 5),
-            ("5 == 5;", 5, "==", 5),
-            ("5 != 5;", 5, "!=", 5),
+            ("5 + 5;", Expected::Integer(5), "+", Expected::Integer(5)),
+            ("5 - 5;", Expected::Integer(5), "-", Expected::Integer(5)),
+            ("5 * 5;", Expected::Integer(5), "*", Expected::Integer(5)),
+            ("5 / 5;", Expected::Integer(5), "/", Expected::Integer(5)),
+            ("5 > 5;", Expected::Integer(5), ">", Expected::Integer(5)),
+            ("5 < 5;", Expected::Integer(5), "<", Expected::Integer(5)),
+            ("5 == 5;", Expected::Integer(5), "==", Expected::Integer(5)),
+            ("5 != 5;", Expected::Integer(5), "!=", Expected::Integer(5)),
+            (
+                "true == true;",
+                Expected::Boolean(true),
+                "==",
+                Expected::Boolean(true),
+            ),
+            (
+                "true != false;",
+                Expected::Boolean(true),
+                "!=",
+                Expected::Boolean(false),
+            ),
+            (
+                "false == false;",
+                Expected::Boolean(false),
+                "==",
+                Expected::Boolean(false),
+            ),
         ];
 
         for test in tests {
@@ -565,20 +600,7 @@ mod tests {
                 s => panic!("Expected expression statement but got {:?}", s),
             };
 
-            let infix_expression = match &statement.expression {
-                Expression::InfixExpression(e) => e,
-                e => panic!("Expected infix expression but got {:?}", e),
-            };
-
-            test_integer_literal(&infix_expression.left, test.1);
-
-            assert_eq!(
-                infix_expression.operator,
-                String::from(test.2),
-                "Operators should match"
-            );
-
-            test_integer_literal(&infix_expression.right, test.3);
+            test_infix_expression(&statement.expression, test.1, test.2, test.3);
         }
     }
 
