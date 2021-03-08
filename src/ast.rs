@@ -77,6 +77,7 @@ pub enum Expression {
     IntegerLiteral(IntegerLiteral),
     PrefixExpression(PrefixExpression),
     InfixExpression(InfixExpression),
+    BooleanExpression(BooleanExpression),
 
     // TODO: Keeping this here for now
     Nil,
@@ -91,6 +92,7 @@ impl Print for Expression {
             Expression::InfixExpression(e) => {
                 format!("({} {} {})", e.left.print(), e.operator, e.right.print())
             }
+            Expression::BooleanExpression(e) => format!("{}", e.value),
             Expression::Nil => String::new(),
         }
     }
@@ -115,4 +117,10 @@ pub struct InfixExpression {
     pub left: Box<Expression>,
     pub operator: String,
     pub right: Box<Expression>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct BooleanExpression {
+    pub token: Token,
+    pub value: bool,
 }
