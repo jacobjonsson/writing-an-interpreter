@@ -1,7 +1,7 @@
 use crate::{
     ast::{
-        Expression, ExpressionStatement, Identifier, InfixExpression, IntegerLiteral, LetStatement,
-        PrefixExpression, Program, ReturnStatement, Statement,
+        BooleanExpression, Expression, ExpressionStatement, Identifier, InfixExpression,
+        IntegerLiteral, LetStatement, PrefixExpression, Program, ReturnStatement, Statement,
     },
     lexer::Lexer,
     token::{Token, TokenLiteral},
@@ -163,22 +163,14 @@ impl Parser {
     ) -> Result<Expression, ParserError> {
         let mut left = self.parse_prefix()?;
 
-        loop {
-            match self.peek_token {
-                Token::Semicolon => break,
-                _ => {}
-            }
-
-            if precedence >= self.peek_precedence() {
-                break;
-            }
-
+        while Token::Semicolon != self.peek_token && precedence < self.peek_precedence() {
             self.next_token();
 
-            left = match self.parse_infix(left.clone()) {
-                Ok(s) => s,
-                Err(_) => return Ok(left),
-            };
+            if let Ok(s) = self.parse_infix(left.clone()) {
+                left = s;
+            } else {
+                return Ok(left);
+            }
         }
 
         Ok(left)
@@ -190,11 +182,29 @@ impl Parser {
             Token::Integer(_) => self.parser_integer_literal(),
             Token::Bang => self.parse_prefix_expression(),
             Token::Minus => self.parse_prefix_expression(),
+            Token::True => self.parse_boolean(),
+            Token::False => self.parse_boolean(),
             _ => Err(ParserError(format!(
                 "No prefix parse function for {} found",
                 self.current_token.token_literal()
             ))),
         }
+    }
+
+    fn parse_boolean(&mut self) -> Result<Expression, ParserError> {
+        Ok(Expression::BooleanExpression(BooleanExpression {
+            token: self.current_token.clone(),
+            value: match &self.current_token {
+                Token::True => true,
+                Token::False => false,
+                c => {
+                    return Err(ParserError(format!(
+                        "Expected to get true or false but got {:?}",
+                        c
+                    )))
+                }
+            },
+        }))
     }
 
     fn parse_infix(&mut self, left: Expression) -> Result<Expression, ParserError> {
@@ -207,7 +217,6 @@ impl Parser {
             Token::NotEquals => self.parse_infix_expression(left),
             Token::LessThan => self.parse_infix_expression(left),
             Token::GreaterThan => self.parse_infix_expression(left),
-
             t => Err(ParserError(format!(
                 "No infix parse function for {} found",
                 t.token_literal()
@@ -471,10 +480,22 @@ mod tests {
         }
     }
 
-    fn test_integer_literal(literal: &Expression, value: i64) {
-        let integer = match literal {
+    enum Expected {
+        String(String),
+        Integer(i64),
+    }
+
+    fn test_literal_expression(expression: &Expression, value: Expected) {
+        match value {
+            Expected::String(v) => test_identifier(expression, v),
+            Expected::Integer(v) => test_integer_literal(expression, v),
+        }
+    }
+
+    fn test_integer_literal(expression: &Expression, value: i64) {
+        let integer = match expression {
             Expression::IntegerLiteral(v) => v,
-            _ => panic!("Expected integer literal but did not get it"),
+            e => panic!("Expected integer literal but did got {:?}", e),
         };
 
         assert_eq!(integer.value, value, "Values should match");
@@ -483,6 +504,35 @@ mod tests {
             value.to_string(),
             "Token literals should match"
         )
+    }
+
+    fn test_identifier(expression: &Expression, value: String) {
+        let identifier = match expression {
+            Expression::Identifier(v) => v,
+            e => panic!("Expected identifier but got {:?}", e),
+        };
+
+        assert_eq!(identifier.value, value);
+        assert_eq!(identifier.token.token_literal(), value);
+    }
+
+    fn test_infix_expression(
+        expression: &Expression,
+        left: Expected,
+        operator: String,
+        right: Expected,
+    ) {
+        let infix_expression = match expression {
+            Expression::InfixExpression(e) => e,
+            e => panic!("Expected infix expression but got {:?}", e),
+        };
+
+        test_literal_expression(&infix_expression.left, left);
+        assert_eq!(
+            infix_expression.operator, operator,
+            "Operators should match"
+        );
+        test_literal_expression(&infix_expression.right, right);
     }
 
     #[test]
@@ -536,6 +586,10 @@ mod tests {
     fn test_operator_precedence_parsing() {
         let tests = vec![
             ("5 + 5", "(5 + 5)"),
+            ("true", "true"),
+            ("false", "false"),
+            ("3 > 5 == false", "((3 > 5) == false)"),
+            ("3 > 5 == false", "((3 > 5) == false)"),
             ("a + b + c", "((a + b) + c)"),
             ("a + b / c", "(a + (b / c))"),
             (
@@ -552,6 +606,39 @@ mod tests {
 
             let actual = program.print();
             assert_eq!(actual, test.1);
+        }
+    }
+
+    #[test]
+    fn test_boolean_expression() {
+        let tests = vec![("true;", true), ("false;", false)];
+
+        for test in tests {
+            let lexer = Lexer::new(test.0);
+            let mut parser = Parser::new(lexer);
+            let program = parser.parse_program();
+            check_parser_errors(&parser);
+
+            assert_eq!(
+                program.statements.len(),
+                1,
+                "Program should contain one statement"
+            );
+
+            let statement = match &program.statements[0] {
+                Statement::Expression(s) => s,
+                s => panic!(
+                    "Statement should be an expression statement but got {:?}",
+                    s
+                ),
+            };
+
+            let expression = match &statement.expression {
+                Expression::BooleanExpression(e) => e,
+                e => panic!("Expression should be boolean expression but got {:?}", e),
+            };
+
+            assert_eq!(expression.value, test.1, "Values should match");
         }
     }
 }
