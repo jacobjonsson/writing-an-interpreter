@@ -100,6 +100,7 @@ pub enum Expression {
     BooleanExpression(BooleanExpression),
     IfExpression(IfExpression),
     FunctionLiteral(FunctionLiteral),
+    CallExpression(CallExpression),
 
     // TODO: Keeping this here for now
     Nil,
@@ -129,6 +130,7 @@ impl Print for Expression {
                 return s;
             }
             Expression::FunctionLiteral(f) => f.print(),
+            Expression::CallExpression(c) => c.print(),
             Expression::Nil => String::new(),
         }
     }
@@ -189,5 +191,38 @@ impl Print for FunctionLiteral {
             params.join(","),
             self.body.print()
         );
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum CallExpressionFunction {
+    Identifier(Identifier),
+    FunctionLiteral(FunctionLiteral),
+}
+
+impl Print for CallExpressionFunction {
+    fn print(&self) -> String {
+        match &self {
+            CallExpressionFunction::FunctionLiteral(f) => f.print(),
+            CallExpressionFunction::Identifier(i) => i.print(),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct CallExpression {
+    pub token: Token,
+    pub function: CallExpressionFunction,
+    pub arguments: Vec<Box<Expression>>,
+}
+
+impl Print for CallExpression {
+    fn print(&self) -> String {
+        let mut arguments: Vec<String> = Vec::new();
+        for argument in &self.arguments {
+            arguments.push(argument.print());
+        }
+
+        return format!("{}, ({})", self.function.print(), arguments.join(", "));
     }
 }

@@ -1,8 +1,8 @@
 use crate::{
     ast::{
-        BlockStatement, BooleanExpression, Expression, ExpressionStatement, FunctionLiteral,
-        Identifier, IfExpression, InfixExpression, IntegerLiteral, LetStatement, PrefixExpression,
-        Program, ReturnStatement, Statement,
+        BlockStatement, BooleanExpression, CallExpression, CallExpressionFunction, Expression,
+        ExpressionStatement, FunctionLiteral, Identifier, IfExpression, InfixExpression,
+        IntegerLiteral, LetStatement, PrefixExpression, Program, ReturnStatement, Statement,
     },
     lexer::Lexer,
     token::{Token, TokenLiteral},
@@ -31,6 +31,7 @@ fn token_to_precedence(token: &Token) -> OperatorPrecedence {
         Token::Minus => OperatorPrecedence::Sum,
         Token::Slash => OperatorPrecedence::Product,
         Token::Asterisk => OperatorPrecedence::Product,
+        Token::LeftParen => OperatorPrecedence::Call,
         _ => OperatorPrecedence::Lowest,
     }
 }
@@ -110,18 +111,12 @@ impl Parser {
         let token = self.current_token.clone();
         self.next_token();
 
-        // TODO: Skipping expressions for now
-        loop {
-            match &self.current_token {
-                Token::Semicolon => break,
-                _ => self.next_token(),
-            }
+        let value = self.parse_expression(OperatorPrecedence::Lowest)?;
+        if self.peek_token == Token::Semicolon {
+            self.next_token();
         }
 
-        Ok(Statement::Return(ReturnStatement {
-            token: token,
-            value: Expression::Nil,
-        }))
+        return Ok(Statement::Return(ReturnStatement { token, value }));
     }
 
     fn parse_expression_statement(&mut self) -> Result<Statement, ParserError> {
@@ -322,11 +317,51 @@ impl Parser {
             Token::NotEquals => self.parse_infix_expression(left),
             Token::LessThan => self.parse_infix_expression(left),
             Token::GreaterThan => self.parse_infix_expression(left),
+            Token::LeftParen => self.parse_call_expression(left),
             t => Err(ParserError(format!(
                 "No infix parse function for {} found",
                 t.token_literal()
             ))),
         }
+    }
+
+    fn parse_call_expression(&mut self, function: Expression) -> Result<Expression, ParserError> {
+        Ok(Expression::CallExpression(CallExpression {
+            arguments: self.parse_call_arguments()?,
+            function: match function {
+                Expression::Identifier(i) => CallExpressionFunction::Identifier(i),
+                Expression::FunctionLiteral(f) => CallExpressionFunction::FunctionLiteral(f),
+                e => {
+                    return Err(ParserError(format!(
+                        "Expected left to either be an identifier or function literal but got {:?}",
+                        e
+                    )))
+                }
+            },
+            token: self.current_token.clone(),
+        }))
+    }
+
+    fn parse_call_arguments(&mut self) -> Result<Vec<Box<Expression>>, ParserError> {
+        let mut arguments: Vec<Box<Expression>> = Vec::new();
+
+        if self.peek_token == Token::RightParen {
+            self.next_token();
+            return Ok(arguments);
+        }
+
+        self.next_token();
+        arguments.push(Box::new(self.parse_expression(OperatorPrecedence::Lowest)?));
+
+        while self.peek_token == Token::Comma {
+            self.next_token();
+            self.next_token();
+            arguments.push(Box::new(self.parse_expression(OperatorPrecedence::Lowest)?));
+        }
+
+        self.expect_peek(Token::RightParen)?;
+
+        return Ok(arguments);
     }
 
     fn parse_infix_expression(&mut self, left: Expression) -> Result<Expression, ParserError> {
@@ -356,27 +391,20 @@ impl Parser {
     }
 
     fn parse_let_statement(&mut self) -> Result<Statement, ParserError> {
-        // Next token must be identifier
+        let token = self.current_token.clone();
         let name = Identifier {
             token: self.peek_token.clone(),
             value: self.assert_identifier()?,
         };
         self.next_token();
-        self.assert_assign()?;
-
-        // TODO: Skipping expressions for now
-        loop {
-            match &self.current_token {
-                Token::Semicolon => break,
-                _ => self.next_token(),
-            }
+        self.expect_peek(Token::Assign)?;
+        self.next_token();
+        let value = self.parse_expression(OperatorPrecedence::Lowest)?;
+        if self.peek_token == Token::Semicolon {
+            self.next_token();
         }
 
-        return Ok(Statement::Let(LetStatement {
-            name,
-            token: Token::Let,
-            value: Expression::Nil,
-        }));
+        return Ok(Statement::Let(LetStatement { name, token, value }));
     }
 
     fn next_token(&mut self) {
@@ -433,36 +461,37 @@ impl Parser {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Index;
-
-    use crate::{ast::*, token::TokenLiteral};
-
     use super::*;
+    use crate::{ast::*, token::TokenLiteral};
 
     #[test]
     fn test_let_statements() {
-        let input = "
-        let x = 5;
-        let y = 10;
-        let foobar = 838383;
-        ";
+        let tests = vec![
+            ("let x = 5;", "x", Expected::Integer(5)),
+            ("let y = true;", "y", Expected::Boolean(true)),
+            ("let foobar = y;", "foobar", Expected::String("y".into())),
+        ];
 
-        let lexer = Lexer::new(input);
-        let mut parser = Parser::new(lexer);
-        let program = parser.parse_program();
+        for test in tests {
+            let lexer = Lexer::new(test.0);
+            let mut parser = Parser::new(lexer);
+            let program = parser.parse_program();
+            check_parser_errors(&parser);
 
-        check_parser_errors(&parser);
+            assert_eq!(
+                program.statements.len(),
+                1,
+                "Program should contain 1 statement"
+            );
 
-        assert_eq!(
-            program.statements.len(),
-            3,
-            "Program should contains 3 statement"
-        );
+            test_let_statement(&program.statements[0], test.1);
 
-        let tests = vec!["x", "y", "foobar"];
-        for (index, test) in tests.iter().enumerate() {
-            let statement = &program.statements[index];
-            assert_eq!(test_let_statement(statement, test), true);
+            let statement = match &program.statements[0] {
+                Statement::Let(l) => l,
+                s => panic!("Expected let statement but got {:?}", s),
+            };
+
+            test_literal_expression(&statement.value, test.2);
         }
     }
 
@@ -478,34 +507,40 @@ mod tests {
     fn check_parser_errors(parser: &Parser) {
         let errors = parser.errors();
         if errors.len() != 0 {
-            panic!("Expected parser to have no errors: {:?}", errors);
+            println!("Parser has {} errors", errors.len());
+            for error in errors {
+                println!("parser error: {}", error);
+            }
+            panic!("Fail because of parser errors");
         }
     }
 
     #[test]
     fn test_return_statements() {
-        let input = "
-        return 5;
-        return 10;
-        return 838383;
-        ";
+        let tests = vec![
+            ("return 5;", Expected::Integer(5)),
+            ("return true;", Expected::Boolean(true)),
+            ("return y;", Expected::String("y".into())),
+        ];
 
-        let lexer = Lexer::new(input);
-        let mut parser = Parser::new(lexer);
-        let program = parser.parse_program();
-        check_parser_errors(&parser);
+        for test in tests {
+            let lexer = Lexer::new(test.0);
+            let mut parser = Parser::new(lexer);
+            let program = parser.parse_program();
+            check_parser_errors(&parser);
 
-        assert_eq!(
-            program.statements.len(),
-            3,
-            "Program should contains 3 statement"
-        );
+            assert_eq!(
+                program.statements.len(),
+                1,
+                "Program should contain 1 statement"
+            );
 
-        for statement in &program.statements {
-            match statement {
-                Statement::Return { .. } => continue,
-                s => panic!("Expected return got but got {:?}", s),
-            }
+            let statement = match &program.statements[0] {
+                Statement::Return(r) => r,
+                s => panic!("Expected let statement but got {:?}", s),
+            };
+
+            test_literal_expression(&statement.value, test.1);
         }
     }
 
@@ -592,12 +627,12 @@ mod tests {
 
             let statement = match &program.statements[0] {
                 Statement::Expression(statement) => statement,
-                _ => panic!("Expected expression statement but did not get it"),
+                e => panic!("Expected expression statement but got {:?}", e),
             };
 
             let prefix_expression = match &statement.expression {
                 Expression::PrefixExpression(prefix_expression) => prefix_expression,
-                _ => panic!("Expected prefix expression but did not get it"),
+                e => panic!("Expected prefix expression but got {:?}", e),
             };
 
             assert_eq!(prefix_expression.operator, test.1);
@@ -622,7 +657,7 @@ mod tests {
     fn test_integer_literal(expression: &Expression, value: i64) {
         let integer = match expression {
             Expression::IntegerLiteral(v) => v,
-            e => panic!("Expected integer literal but did got {:?}", e),
+            e => panic!("Expected integer literal but got {:?}", e),
         };
 
         assert_eq!(integer.value, value, "Values should match");
@@ -950,5 +985,48 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_call_expression_parsing() {
+        let input = "add(1, 2 * 3, 4 + 5)";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+        check_parser_errors(&parser);
+        assert_eq!(program.statements.len(), 1);
+
+        let statement = match &program.statements[0] {
+            Statement::Expression(e) => e,
+            s => panic!("Expected expression statement but got {:?}", s),
+        };
+
+        let call_expression = match &statement.expression {
+            Expression::CallExpression(c) => c,
+            e => panic!("Expected call expression but got {:?}", e),
+        };
+
+        let identifier = match &call_expression.function {
+            CallExpressionFunction::Identifier(i) => i,
+            f => panic!("Expected identifier but got {:?}", f),
+        };
+
+        test_identifier(&Expression::Identifier(identifier.clone()), "add".into());
+
+        assert_eq!(call_expression.arguments.len(), 3);
+
+        test_literal_expression(&call_expression.arguments[0], Expected::Integer(1));
+        test_infix_expression(
+            &call_expression.arguments[1],
+            Expected::Integer(2),
+            "*".into(),
+            Expected::Integer(3),
+        );
+        test_infix_expression(
+            &call_expression.arguments[2],
+            Expected::Integer(4),
+            "+".into(),
+            Expected::Integer(5),
+        );
     }
 }
