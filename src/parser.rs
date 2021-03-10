@@ -1,8 +1,8 @@
 use crate::{
     ast::{
-        BlockStatement, BooleanExpression, Expression, ExpressionStatement, Identifier,
-        IfExpression, InfixExpression, IntegerLiteral, LetStatement, PrefixExpression, Program,
-        ReturnStatement, Statement,
+        BlockStatement, BooleanExpression, Expression, ExpressionStatement, FunctionLiteral,
+        Identifier, IfExpression, InfixExpression, IntegerLiteral, LetStatement, PrefixExpression,
+        Program, ReturnStatement, Statement,
     },
     lexer::Lexer,
     token::{Token, TokenLiteral},
@@ -188,11 +188,52 @@ impl Parser {
             Token::False => self.parse_boolean(),
             Token::LeftParen => self.parse_grouped_expression(),
             Token::If => self.parse_if_expression(),
+            Token::Function => self.parse_function_literal(),
             _ => Err(ParserError(format!(
                 "No prefix parse function for {} found",
                 self.current_token.token_literal()
             ))),
         }
+    }
+
+    fn parse_function_literal(&mut self) -> Result<Expression, ParserError> {
+        let token = self.current_token.clone();
+        self.expect_peek(Token::LeftParen)?;
+        let parameters = self.parse_function_parameters()?;
+        self.expect_peek(Token::LeftBrace)?;
+        let body = self.parse_block_statement()?;
+
+        Ok(Expression::FunctionLiteral(FunctionLiteral {
+            body,
+            parameters,
+            token,
+        }))
+    }
+
+    fn parse_function_parameters(&mut self) -> Result<Vec<Identifier>, ParserError> {
+        let mut identifiers: Vec<Identifier> = Vec::new();
+        if self.peek_token == Token::RightParen {
+            self.next_token();
+            return Ok(identifiers);
+        }
+        self.next_token();
+        identifiers.push(Identifier {
+            token: self.current_token.clone(),
+            value: self.current_token.token_literal(),
+        });
+
+        while self.peek_token == Token::Comma {
+            self.next_token();
+            self.next_token();
+            identifiers.push(Identifier {
+                token: self.current_token.clone(),
+                value: self.current_token.token_literal(),
+            });
+        }
+
+        self.expect_peek(Token::RightParen)?;
+
+        Ok(identifiers)
     }
 
     fn parse_if_expression(&mut self) -> Result<Expression, ParserError> {
@@ -392,6 +433,8 @@ impl Parser {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Index;
+
     use crate::{ast::*, token::TokenLiteral};
 
     use super::*;
@@ -832,5 +875,80 @@ mod tests {
         };
 
         test_identifier(&statements.expression, "y".into());
+    }
+
+    #[test]
+    fn test_function_literal_parsing() {
+        let input = "fn(x, y) { x + y; }";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+        check_parser_errors(&parser);
+
+        assert_eq!(program.statements.len(), 1);
+        let statement = match &program.statements[0] {
+            Statement::Expression(s) => s,
+            s => panic!("Expected expression statement but got {:?}", s),
+        };
+
+        let function = match &statement.expression {
+            Expression::FunctionLiteral(f) => f,
+            e => panic!("Expected function literal but got {:?}", e),
+        };
+
+        assert_eq!(function.parameters.len(), 2);
+        test_literal_expression(
+            &Expression::Identifier(function.parameters[0].clone()),
+            Expected::String("x".into()),
+        );
+        test_literal_expression(
+            &Expression::Identifier(function.parameters[1].clone()),
+            Expected::String("y".into()),
+        );
+
+        assert_eq!(function.body.statements.len(), 1);
+        let body_statement = match &function.body.statements[0] {
+            Statement::Expression(e) => e,
+            s => panic!("Expected expression statement but got {:?}", s),
+        };
+
+        test_infix_expression(
+            &body_statement.expression,
+            Expected::String("x".into()),
+            "+".into(),
+            Expected::String("y".into()),
+        );
+    }
+
+    #[test]
+    fn test_function_parameter_parsing() {
+        let tests = vec![
+            ("fn() {};", vec![]),
+            ("fn(x) {};", vec!["x"]),
+            ("fn(x, y, z) {};", vec!["x", "y", "z"]),
+        ];
+
+        for test in tests {
+            let lexer = Lexer::new(test.0);
+            let mut parser = Parser::new(lexer);
+            let program = parser.parse_program();
+            check_parser_errors(&parser);
+
+            let statement = match &program.statements[0] {
+                Statement::Expression(e) => e,
+                e => panic!("Expected expression statement but got {:?}", e),
+            };
+            let function = match &statement.expression {
+                Expression::FunctionLiteral(f) => f,
+                e => panic!("Expected function literal but got {:?}", e),
+            };
+            assert_eq!(function.parameters.len(), test.1.len());
+            for (idx, &identifier) in test.1.iter().enumerate() {
+                test_literal_expression(
+                    &Expression::Identifier(function.parameters[idx].clone()),
+                    Expected::String(identifier.into()),
+                );
+            }
+        }
     }
 }

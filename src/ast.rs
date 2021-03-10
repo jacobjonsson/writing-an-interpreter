@@ -99,6 +99,7 @@ pub enum Expression {
     InfixExpression(InfixExpression),
     BooleanExpression(BooleanExpression),
     IfExpression(IfExpression),
+    FunctionLiteral(FunctionLiteral),
 
     // TODO: Keeping this here for now
     Nil,
@@ -127,6 +128,7 @@ impl Print for Expression {
 
                 return s;
             }
+            Expression::FunctionLiteral(f) => f.print(),
             Expression::Nil => String::new(),
         }
     }
@@ -165,4 +167,27 @@ pub struct IfExpression {
     pub condition: Box<Expression>,
     pub consequence: Box<BlockStatement>,
     pub alternate: Option<Box<BlockStatement>>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct FunctionLiteral {
+    pub token: Token,
+    pub parameters: Vec<Identifier>,
+    pub body: BlockStatement,
+}
+
+impl Print for FunctionLiteral {
+    fn print(&self) -> String {
+        let mut params: Vec<String> = vec![];
+        for param in &self.parameters {
+            params.push(param.print());
+        }
+
+        return format!(
+            "{} ({}) {}",
+            self.token.token_literal(),
+            params.join(","),
+            self.body.print()
+        );
+    }
 }
